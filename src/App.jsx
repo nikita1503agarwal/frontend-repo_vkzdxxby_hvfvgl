@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import AnimatedNavbar from './components/AnimatedNavbar'
+import AccessibleNavbar from './components/AccessibleNavbar'
+import AnimatedHero from './components/AnimatedHero'
 import ProductCard from './components/ProductCard'
 import CartDrawer from './components/CartDrawer'
-import { Filter, Sparkles } from 'lucide-react'
+import LoginDialog from './components/LoginDialog'
+import { Filter } from 'lucide-react'
 
 const BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'
 
@@ -17,13 +19,25 @@ export default function App() {
   const [checkingOut, setCheckingOut] = useState(false)
   const [orderResult, setOrderResult] = useState(null)
 
+  // Auth
+  const [loginOpen, setLoginOpen] = useState(false)
+  const [token, setToken] = useState('')
+  const [userEmail, setUserEmail] = useState('')
+
   // Filters
   const [query, setQuery] = useState('')
   const [color, setColor] = useState('All')
   const [size, setSize] = useState('All')
   const [price, setPrice] = useState('All')
 
+  const catalogRef = useRef(null)
+  const scrollToCatalog = () => catalogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
   useEffect(() => {
+    // bootstrap auth state
+    const t = localStorage.getItem('auth_token')
+    if (t) setToken(t)
+
     const load = async () => {
       setLoading(true)
       setError('')
@@ -74,15 +88,31 @@ export default function App() {
     })
   }
 
+  const handleAuthed = ({ token: t, email }) => {
+    setToken(t)
+    setUserEmail(email)
+  }
+
   const checkout = async () => {
+    if (!token) {
+      setLoginOpen(true)
+      return
+    }
     setCheckingOut(true)
     setOrderResult(null)
     try {
       const payload = {
         items: cart.map(c => ({ product_id: c.id, quantity: c.qty, size: c.sizes?.[0] || null, color: c.colors?.[0] || null }))
       }
-      const res = await fetch(`${BACKEND}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      if (!res.ok) throw new Error('Checkout failed')
+      const res = await fetch(`${BACKEND}/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.detail || 'Checkout failed')
+      }
       const data = await res.json()
       setOrderResult({ ok: true, data })
       setCart([])
@@ -95,43 +125,15 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
-      <AnimatedNavbar onCartToggle={setCartOpen} />
+      <AccessibleNavbar onCartToggle={setCartOpen} onLoginToggle={setLoginOpen} />
 
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 -z-10 bg-[radial-gradient(1000px_500px_at_10%_-10%,rgba(15,23,42,0.08),transparent),radial-gradient(800px_400px_at_90%_-20%,rgba(15,23,42,0.06),transparent)]" />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-10">
-          <div className="grid md:grid-cols-2 items-center gap-8">
-            <div>
-              <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="text-4xl sm:text-5xl font-extrabold tracking-tight text-slate-900">
-                Oxford & Co.
-              </motion.h1>
-              <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mt-4 text-lg text-slate-600">
-                Handcrafted formal shoes built for elegance and all‑day comfort.
-              </motion.p>
-              <div className="mt-6 flex items-center gap-3">
-                <a href="#catalog" className="inline-flex items-center gap-2 bg-slate-900 text-white px-5 py-3 rounded-md shadow hover:bg-slate-800">
-                  <Sparkles size={18} /> Shop Collection
-                </a>
-                <a href="/test" className="text-slate-700 hover:text-slate-900">Check Connection</a>
-              </div>
-            </div>
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="relative">
-              <div className="aspect-[4/3] rounded-2xl overflow-hidden shadow-lg">
-                <img src="https://images.unsplash.com/photo-1520975916090-3105956dac38?q=80&w=1600&auto=format&fit=crop" alt="Oxford" className="w-full h-full object-cover" />
-              </div>
-              <div className="absolute -bottom-4 -left-4 bg-white/80 backdrop-blur border border-slate-200 rounded-xl px-4 py-2 shadow">
-                <span className="text-sm">Premium Leather • Goodyear Welt • Cushioned Insole</span>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
+      <AnimatedHero onShop={scrollToCatalog} />
 
       {/* Filters */}
       <section className="border-t border-slate-200 bg-white/70 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap items-center gap-3">
-          <div className="inline-flex items-center gap-2 text-slate-700 font-medium"><Filter size={16} /> Filters</div>
+          <div className="inline-flex items-center gap-2 text-slate-700 font-medium">Filters</div>
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search..." className="px-3 py-2 rounded-md border border-slate-300 text-sm" />
           <select value={color} onChange={e => setColor(e.target.value)} className="px-3 py-2 rounded-md border border-slate-300 text-sm">
             {['All','Black','Brown','Tan'].map(c => <option key={c} value={c}>{c}</option>)}
@@ -146,7 +148,7 @@ export default function App() {
       </section>
 
       {/* Catalog */}
-      <section id="catalog" className="py-10">
+      <section id="catalog" ref={catalogRef} className="py-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {loading && (
             <div className="text-center text-slate-600">Loading products…</div>
@@ -172,6 +174,12 @@ export default function App() {
         items={cart}
         onClose={() => setCartOpen(false)}
         onCheckout={checkout}
+      />
+
+      <LoginDialog
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
+        onAuthed={handleAuthed}
       />
 
       {/* Toast/Result */}
